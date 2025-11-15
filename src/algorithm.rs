@@ -20,7 +20,7 @@ impl Ed25519 {
         x.modpow(&exponent, &*BASE_FILED_P)
     }
 
-    fn get_base_field_d(&self) -> BigInt {
+    fn get_base_field_d() -> BigInt {
         let x = BigInt::from(121666u32);
         -121665 * Self::mod_p_inverse(&x) % &*BASE_FILED_P
     }
@@ -54,5 +54,24 @@ mod tests {
             let product = (&x * &inv_x) % &*BASE_FILED_P;
             assert_eq!(product, BigInt::from(1u8));
         }
+    }
+
+    #[test]
+    fn test_get_base_field_d() {
+        // 実装から得られる d
+        let raw_d = Ed25519::get_base_field_d();
+        let p = &*BASE_FILED_P;
+
+        // 0 <= d < p になるように正規化
+        let d = ((raw_d % p) + p) % p;
+
+        // 仕様で決まっている Ed25519 の d
+        let expected = BigInt::parse_bytes(
+            b"37095705934669439343138083508754565189542113879843219016388785533085940283555",
+            10,
+        )
+            .expect("failed to parse d constant");
+
+        assert_eq!(d, expected);
     }
 }
