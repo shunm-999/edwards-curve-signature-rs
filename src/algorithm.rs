@@ -1,9 +1,8 @@
-use num_bigint::BigUint;
+use num_bigint::BigInt;
 use once_cell::sync::Lazy;
 use sha2::{Digest, Sha512};
 
-static BASE_FILED_P: Lazy<BigUint> =
-    Lazy::new(|| BigUint::from(2u8).pow(255) - BigUint::from(19u8));
+static BASE_FILED_P: Lazy<BigInt> = Lazy::new(|| BigInt::from(2u8).pow(255) - BigInt::from(19u8));
 
 pub(crate) struct Ed25519 {}
 
@@ -15,10 +14,15 @@ impl Ed25519 {
         sha512.finalize_reset().into()
     }
 
-    fn mod_p_inverse(x: &BigUint) -> BigUint {
+    fn mod_p_inverse(x: &BigInt) -> BigInt {
         // p - 2
-        let exponent = &*BASE_FILED_P - BigUint::from(2u8);
+        let exponent = &*BASE_FILED_P - BigInt::from(2u8);
         x.modpow(&exponent, &*BASE_FILED_P)
+    }
+
+    fn get_base_field_d(&self) -> BigInt {
+        let x = BigInt::from(121666u32);
+        -121665 * Self::mod_p_inverse(&x) % &*BASE_FILED_P
     }
 }
 
@@ -45,10 +49,10 @@ mod tests {
     #[test]
     fn test_mod_p_inverse() {
         for i in 1u32..1000 {
-            let x = BigUint::from(i);
+            let x = BigInt::from(i);
             let inv_x = Ed25519::mod_p_inverse(&x);
             let product = (&x * &inv_x) % &*BASE_FILED_P;
-            assert_eq!(product, BigUint::from(1u8));
+            assert_eq!(product, BigInt::from(1u8));
         }
     }
 }
