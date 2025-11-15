@@ -14,6 +14,12 @@ impl Ed25519 {
         sha512.update(s.as_bytes());
         sha512.finalize_reset().into()
     }
+
+    fn mod_p_inverse(x: &BigUint) -> BigUint {
+        // p - 2
+        let exponent = &*BASE_FILED_P - BigUint::from(2u8);
+        x.modpow(&exponent, &*BASE_FILED_P)
+    }
 }
 
 mod tests {
@@ -34,5 +40,15 @@ mod tests {
         ];
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_mod_p_inverse() {
+        for i in 1u32..1000 {
+            let x = BigUint::from(i);
+            let inv_x = Ed25519::mod_p_inverse(&x);
+            let product = (&x * &inv_x) % &*BASE_FILED_P;
+            assert_eq!(product, BigUint::from(1u8));
+        }
     }
 }
