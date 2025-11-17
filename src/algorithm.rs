@@ -8,6 +8,11 @@ static BASE_FIELD_Q: Lazy<BigInt> = Lazy::new(|| {
     BigInt::from(2u8).pow(252) + BigInt::from(27742317777372353535851937790883648493u128)
 });
 
+static MOD_P_SQRT_M1: Lazy<BigInt> = Lazy::new(|| {
+    let exponent = (&*BASE_FIELD_P - BigInt::from(1u8)) / BigInt::from(4u8);
+    BigInt::from(2u8).modpow(&exponent, &*BASE_FIELD_P)
+});
+
 struct Point {
     x: BigInt,
     y: BigInt,
