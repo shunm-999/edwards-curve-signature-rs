@@ -30,6 +30,16 @@ impl Ed25519 {
         x.modpow(&exponent, &*BASE_FIELD_P)
     }
 
+    // 単位元（Ed25519 の extended coordinates）
+    fn identity() -> Point {
+        Point {
+            x: BigInt::from(0),
+            y: BigInt::from(1),
+            z: BigInt::from(1),
+            t: BigInt::from(0),
+        }
+    }
+
     fn get_base_field_d() -> BigInt {
         let x = BigInt::from(121666u32);
         let raw_d = -121665 * Self::mod_p_inverse(&x);
@@ -71,20 +81,26 @@ impl Ed25519 {
             t: (&e * &h) % &*BASE_FIELD_P,
         }
     }
+
+    fn point_multiply(scalar: &BigInt, point: Point) -> Point {
+        let mut q = Self::identity();
+        let mut addend = point;
+
+        let mut k = scalar.clone();
+        while k > BigInt::from(0u8) {
+            if &k & BigInt::from(1u8) == BigInt::from(1u8) {
+                q = Self::point_add(&q, &addend);
+            }
+            addend = Self::point_add(&addend, &addend);
+            k >>= 1;
+        }
+
+        q
+    }
 }
 
 mod tests {
     use super::*;
-
-    // 単位元（Ed25519 の extended coordinates）
-    fn identity() -> Point {
-        Point {
-            x: BigInt::from(0),
-            y: BigInt::from(1),
-            z: BigInt::from(1),
-            t: BigInt::from(0),
-        }
-    }
 
     #[test]
     fn test_sha512() {
