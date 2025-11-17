@@ -97,6 +97,24 @@ impl Ed25519 {
 
         q
     }
+
+    fn point_equal(p: &Point, q: &Point) -> bool {
+        let p_x = &p.x;
+        let p_y = &p.y;
+        let p_z = &p.z;
+
+        let q_x = &q.x;
+        let q_y = &q.y;
+        let q_z = &q.z;
+
+        if (p_x * q_z - q_x * p_z) % &*BASE_FIELD_P != BigInt::from(0u8) {
+            return false;
+        }
+        if (p_y * q_z - q_y * p_z) % &*BASE_FIELD_P != BigInt::from(0u8) {
+            return false;
+        }
+        true
+    }
 }
 
 mod tests {
