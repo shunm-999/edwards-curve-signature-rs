@@ -2,31 +2,38 @@ use num_bigint::BigInt;
 use once_cell::sync::Lazy;
 use sha2::{Digest, Sha512};
 
-static BASE_FILED_P: Lazy<BigInt> = Lazy::new(|| BigInt::from(2u8).pow(255) - BigInt::from(19u8));
+static BASE_FIELD_P: Lazy<BigInt> = Lazy::new(|| BigInt::from(2u8).pow(255) - BigInt::from(19u8));
 
-static BASE_FILED_Q: Lazy<BigInt> = Lazy::new(|| {
+static BASE_FIELD_Q: Lazy<BigInt> = Lazy::new(|| {
     BigInt::from(2u8).pow(252) + BigInt::from(27742317777372353535851937790883648493u128)
 });
 
 pub(crate) struct Ed25519 {}
 
 impl Ed25519 {
-    fn sha512(s: &str) -> [u8; 64] {
-        let mut sha512 = Sha512::default();
-
-        sha512.update(s.as_bytes());
-        sha512.finalize_reset().into()
+    fn sha512(bytes: &[u8]) -> [u8; 64] {
+        let mut sha512 = Sha512::new();
+        sha512.update(bytes);
+        sha512.finalize().into()
     }
 
     fn mod_p_inverse(x: &BigInt) -> BigInt {
         // p - 2
-        let exponent = &*BASE_FILED_P - BigInt::from(2u8);
-        x.modpow(&exponent, &*BASE_FILED_P)
+        let exponent = &*BASE_FIELD_P - BigInt::from(2u8);
+        x.modpow(&exponent, &*BASE_FIELD_P)
     }
 
     fn get_base_field_d() -> BigInt {
         let x = BigInt::from(121666u32);
-        -121665 * Self::mod_p_inverse(&x) % &*BASE_FILED_P
+        let raw_d = -121665 * Self::mod_p_inverse(&x);
+        let p = &*BASE_FIELD_P;
+        ((raw_d % p) + p) % p
+    }
+
+    fn sha512_mod_q(bytes: &[u8]) -> BigInt {
+        let hash_bytes = Self::sha512(bytes);
+        let hash_int = BigInt::from_bytes_le(num_bigint::Sign::Plus, &hash_bytes);
+        hash_int % &*BASE_FIELD_Q
     }
 }
 
@@ -36,7 +43,7 @@ mod tests {
     fn test_sha512() {
         let input = "abc";
 
-        let actual = Ed25519::sha512(input);
+        let actual = Ed25519::sha512(input.as_bytes());
 
         // 期待される SHA-512("abc") の値
         let expected: [u8; 64] = [
@@ -55,19 +62,14 @@ mod tests {
         for i in 1u32..1000 {
             let x = BigInt::from(i);
             let inv_x = Ed25519::mod_p_inverse(&x);
-            let product = (&x * &inv_x) % &*BASE_FILED_P;
+            let product = (&x * &inv_x) % &*BASE_FIELD_P;
             assert_eq!(product, BigInt::from(1u8));
         }
     }
 
     #[test]
     fn test_get_base_field_d() {
-        // 実装から得られる d
-        let raw_d = Ed25519::get_base_field_d();
-        let p = &*BASE_FILED_P;
-
-        // 0 <= d < p になるように正規化
-        let d = ((raw_d % p) + p) % p;
+        let d = Ed25519::get_base_field_d();
 
         // 仕様で決まっている Ed25519 の d
         let expected = BigInt::parse_bytes(
