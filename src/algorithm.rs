@@ -8,6 +8,13 @@ static BASE_FIELD_Q: Lazy<BigInt> = Lazy::new(|| {
     BigInt::from(2u8).pow(252) + BigInt::from(27742317777372353535851937790883648493u128)
 });
 
+struct Point {
+    x: BigInt,
+    y: BigInt,
+    z: BigInt,
+    t: BigInt,
+}
+
 pub(crate) struct Ed25519 {}
 
 impl Ed25519 {
@@ -35,10 +42,50 @@ impl Ed25519 {
         let hash_int = BigInt::from_bytes_le(num_bigint::Sign::Plus, &hash_bytes);
         hash_int % &*BASE_FIELD_Q
     }
+
+    fn point_add(p: &Point, q: &Point) -> Point {
+        let base_field_d = Self::get_base_field_d();
+        let p_x = &p.x;
+        let p_y = &p.y;
+        let p_z = &p.z;
+        let p_t = &p.t;
+
+        let q_x = &q.x;
+        let q_y = &q.y;
+        let q_z = &q.z;
+        let q_t = &q.t;
+
+        let a = (p_y - p_x) * (q_y - q_x) % &*BASE_FIELD_P;
+        let b = (p_y + p_x) * (q_y + q_x) % &*BASE_FIELD_P;
+        let c = (BigInt::from(2u8) * p_t * q_t * base_field_d) % &*BASE_FIELD_P;
+        let d = (BigInt::from(2u8) * p_z * q_z) % &*BASE_FIELD_P;
+        let e = (&b - &a) % &*BASE_FIELD_P;
+        let f = (&d - &c) % &*BASE_FIELD_P;
+        let g = (&d + &c) % &*BASE_FIELD_P;
+        let h = (&b + &a) % &*BASE_FIELD_P;
+
+        Point {
+            x: (&e * &f) % &*BASE_FIELD_P,
+            y: (&g * &h) % &*BASE_FIELD_P,
+            z: (&f * &g) % &*BASE_FIELD_P,
+            t: (&e * &h) % &*BASE_FIELD_P,
+        }
+    }
 }
 
 mod tests {
     use super::*;
+
+    // 単位元（Ed25519 の extended coordinates）
+    fn identity() -> Point {
+        Point {
+            x: BigInt::from(0),
+            y: BigInt::from(1),
+            z: BigInt::from(1),
+            t: BigInt::from(0),
+        }
+    }
+
     #[test]
     fn test_sha512() {
         let input = "abc";
