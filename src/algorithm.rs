@@ -4,6 +4,10 @@ use sha2::{Digest, Sha512};
 
 static BASE_FILED_P: Lazy<BigInt> = Lazy::new(|| BigInt::from(2u8).pow(255) - BigInt::from(19u8));
 
+static BASE_FILED_Q: Lazy<BigInt> = Lazy::new(|| {
+    BigInt::from(2u8).pow(252) + BigInt::from(27742317777372353535851937790883648493u128)
+});
+
 pub(crate) struct Ed25519 {}
 
 impl Ed25519 {
@@ -70,7 +74,7 @@ mod tests {
             b"37095705934669439343138083508754565189542113879843219016388785533085940283555",
             10,
         )
-            .expect("failed to parse d constant");
+        .expect("failed to parse d constant");
 
         assert_eq!(d, expected);
     }
