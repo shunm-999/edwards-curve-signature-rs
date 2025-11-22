@@ -122,35 +122,51 @@ impl Ed25519 {
     }
 
     fn recover_x(y: &BigInt, sign: &BigInt) -> Option<BigInt> {
-        if y > &*BASE_FIELD_P {
+        let p = &*BASE_FIELD_P;
+        let one = BigInt::from(1u8);
+
+        // 0 <= y < p でなければダメ
+        if y >= p {
             return None;
         }
-        let x2: BigInt = (y * y - 1)
-            * Self::mod_p_inverse(&(Self::get_base_field_d() * y * y - BigInt::from(1u8)));
+
+        let y2 = (y * y) % p;
+
+        // x^2 = (y^2 - 1) / (1 + d y^2)
+        let num = (y2.clone() - &one + p) % p;
+        let den = (Self::get_base_field_d() * &y2 + &one) % p;
+        let den_inv = Self::mod_p_inverse(&den);
+        let x2 = (num * den_inv) % p;
 
         if x2 == BigInt::from(0u8) {
+            // x = 0 のときは sign が 0 なら OK, 1 なら reject
             return if *sign == BigInt::from(0u8) {
-                None
-            } else {
                 Some(BigInt::from(0u8))
+            } else {
+                None
             };
         }
-        let mut x = x2.modpow(
-            &(&*BASE_FIELD_P + BigInt::from(3u8) / BigInt::from(8u8)),
-            &*BASE_FIELD_P,
-        );
 
-        if &x * &x - &x2 % &*BASE_FIELD_P != BigInt::from(0u8) {
-            x = x * &*MOD_P_SQRT_M1 % &*BASE_FIELD_P
+        // sqrt: x = x2^((p+3)/8)
+        let exp = (p.clone() + BigInt::from(3u8)) >> 3;
+        let mut x = x2.modpow(&exp, p);
+
+        // チェック (1回目)
+        let mut check = (&x * &x) % p;
+        if check != x2 {
+            // もう一回、sqrt(-1) を掛けてみる
+            x = (&x * &*MOD_P_SQRT_M1) % p;
+            check = (&x * &x) % p;
+            if check != x2 {
+                return None;
+            }
         }
 
-        if &x * &x - &x2 % &*BASE_FIELD_P != BigInt::from(0u8) {
-            return None;
+        // 符号ビットに合わせる
+        if (&x & BigInt::from(1u8)) != (sign & BigInt::from(1u8)) {
+            x = p - &x;
         }
 
-        if &x & BigInt::from(1u8) != BigInt::from(0u8) {
-            x = &*BASE_FIELD_P - &x;
-        }
         Some(x)
     }
 }
