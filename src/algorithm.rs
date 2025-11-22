@@ -215,4 +215,56 @@ mod tests {
 
         assert_eq!(d, expected);
     }
+
+    #[test]
+    fn test_recover_x_rejects_invalid_y_ge_p() {
+        // y >= p は不正入力として None を返す
+        let p = &*BASE_FIELD_P;
+        let y = p.clone(); // y == p は NG
+        let sign = BigInt::from(0u8);
+
+        let x = Ed25519::recover_x(&y, &sign);
+        assert!(x.is_none());
+    }
+
+    #[test]
+    fn test_recover_x_identity_point_x_0_y_1() {
+        // 単位元 (x, y) = (0, 1) のテスト
+        // 符号ビット 0 -> x = 0 が返ってくる
+        // 符号ビット 1 -> 非正規形として None
+        let y = BigInt::from(1u8);
+
+        let sign0 = BigInt::from(0u8);
+        let x0 = Ed25519::recover_x(&y, &sign0);
+        assert_eq!(x0, Some(BigInt::from(0u8)));
+
+        let sign1 = BigInt::from(1u8);
+        let x1 = Ed25519::recover_x(&y, &sign1);
+        assert!(x1.is_none());
+    }
+
+    #[test]
+    fn test_recover_x_basepoint() {
+        // Ed25519 のベースポイント B の座標
+        // Bx, By は仕様で決まっている定数
+        // B = (1511222..., 4631683... )
+        let y = BigInt::parse_bytes(
+            b"46316835694926478169428394003475163141307993866256225615783033603165251855960",
+            10,
+        )
+            .unwrap();
+        let x_expected = BigInt::parse_bytes(
+            b"15112221349535400772501151409588531511454012693041857206046113283949847762202",
+            10,
+        )
+            .unwrap();
+
+        // 公開鍵エンコード時と同じく、sign は x の LSB（最下位ビット）
+        let sign = &x_expected & BigInt::from(1u8);
+
+        let x = Ed25519::recover_x(&y, &sign)
+            .expect("base point should be recoverable from (y, sign)");
+
+        assert_eq!(x, x_expected);
+    }
 }
