@@ -179,6 +179,28 @@ impl Ed25519 {
         let x_sign = &x & BigInt::from(1u8);
         (&y | &(x_sign.clone() << 255)).to_bytes_le().1
     }
+
+    fn point_decompress(mut bytes: Vec<u8>) -> Option<Point> {
+        if bytes.len() != 32 {
+            return None;
+        }
+
+        let sign = bytes[31] >> 7;
+        bytes[31] &= 0x7F; // 最上位ビットをクリア
+
+        let y = BigInt::from_bytes_le(num_bigint::Sign::Plus, &bytes);
+
+        let x = Self::recover_x(&y, &BigInt::from(sign));
+        if x.is_none() {
+            return None;
+        }
+        let x = x.unwrap();
+
+        let z = BigInt::from(1u8);
+        let t = (&x * &y) % &*BASE_FIELD_P;
+
+        Some(Point { x, y, z, t })
+    }
 }
 
 mod tests {
