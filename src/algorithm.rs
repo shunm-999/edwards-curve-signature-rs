@@ -170,25 +170,25 @@ impl Ed25519 {
         Some(x)
     }
 
-    fn point_compress(p: &Point) -> Vec<u8> {
+    fn point_compress(p: &Point) -> [u8; 32] {
         let z_inverse = Self::mod_p_inverse(&p.z);
 
         let x = (&p.x * &z_inverse) % &*BASE_FIELD_P;
         let y = (&p.y * &z_inverse) % &*BASE_FIELD_P;
 
         let x_sign = &x & BigInt::from(1u8);
-        (&y | &(x_sign.clone() << 255)).to_bytes_le().1
+        let y = (&y | &(x_sign.clone() << 255)).to_bytes_le().1;
+
+        let mut bytes = [0u8; 32];
+        bytes[..y.len()].copy_from_slice(&y);
+        bytes
     }
 
-    fn point_decompress(mut bytes: Vec<u8>) -> Option<Point> {
-        if bytes.len() != 32 {
-            return None;
-        }
+    fn point_decompress(bytes: [u8; 32]) -> Option<Point> {
+        let mut y = BigInt::from_bytes_le(num_bigint::Sign::Plus, &bytes);
 
-        let sign = bytes[31] >> 7;
-        bytes[31] &= 0x7F; // 最上位ビットをクリア
-
-        let y = BigInt::from_bytes_le(num_bigint::Sign::Plus, &bytes);
+        let sign = &y.clone() >> 255;
+        y = y & ((BigInt::from(1u8) << 255) - BigInt::from(1u8));
 
         let x = Self::recover_x(&y, &BigInt::from(sign));
         if x.is_none() {
@@ -349,10 +349,9 @@ mod tests {
         assert_eq!(a, expected_a);
 
         let expected_prefix: [u8; 32] = [
-            0x0a, 0x6a, 0x85, 0xea, 0xa6, 0x42, 0xda, 0xc8,
-            0x35, 0x42, 0x4b, 0x5d, 0x7c, 0x8d, 0x63, 0x7c,
-            0x00, 0x40, 0x8c, 0x7a, 0x73, 0xda, 0x67, 0x2b,
-            0x7f, 0x49, 0x85, 0x21, 0x42, 0x0b, 0x6d, 0xd3,
+            0x0a, 0x6a, 0x85, 0xea, 0xa6, 0x42, 0xda, 0xc8, 0x35, 0x42, 0x4b, 0x5d, 0x7c, 0x8d,
+            0x63, 0x7c, 0x00, 0x40, 0x8c, 0x7a, 0x73, 0xda, 0x67, 0x2b, 0x7f, 0x49, 0x85, 0x21,
+            0x42, 0x0b, 0x6d, 0xd3,
         ];
 
         assert_eq!(prefix, expected_prefix);
@@ -378,12 +377,108 @@ mod tests {
         assert_eq!(a, expected_a);
 
         let expected_prefix: [u8; 32] = [
-            0xa9, 0xd7, 0x18, 0x62, 0xa3, 0xe5, 0x74, 0x6b,
-            0x57, 0x1b, 0xe3, 0xd1, 0x87, 0xb0, 0x04, 0x10,
-            0x46, 0xf5, 0x2e, 0xbd, 0x85, 0x0c, 0x7c, 0xbd,
-            0x5f, 0xde, 0x8e, 0xe3, 0x84, 0x73, 0xb6, 0x49,
+            0xa9, 0xd7, 0x18, 0x62, 0xa3, 0xe5, 0x74, 0x6b, 0x57, 0x1b, 0xe3, 0xd1, 0x87, 0xb0,
+            0x04, 0x10, 0x46, 0xf5, 0x2e, 0xbd, 0x85, 0x0c, 0x7c, 0xbd, 0x5f, 0xde, 0x8e, 0xe3,
+            0x84, 0x73, 0xb6, 0x49,
         ];
 
         assert_eq!(prefix, expected_prefix);
+    }
+
+    #[test]
+    fn test_sha512_mod_q_range_and_determinism() {
+        let input = b"hello ed25519";
+        let r1 = Ed25519::sha512_mod_q(input);
+        let r2 = Ed25519::sha512_mod_q(input);
+
+        // 同じ入力なら同じ値
+        assert_eq!(r1, r2);
+
+        // 0 <= r < q になっていること
+        assert!(r1 >= BigInt::from(0u8));
+        assert!(r1 < *BASE_FIELD_Q);
+    }
+
+    #[test]
+    fn test_identity_compress_round_trip() {
+        // 単位元は (0,1,1,0) のはずで、compress → decompress で不変であること
+        let id = Ed25519::identity();
+        let enc = Ed25519::point_compress(&id);
+        let dec = Ed25519::point_decompress(enc).expect("identity should decompress");
+
+        assert!(Ed25519::point_equal(&id, &dec));
+    }
+
+    #[test]
+    fn test_point_decompress_basepoint_and_compress_roundtrip() {
+        // Ed25519 のベースポイントの圧縮表現（RFC 実装でおなじみの 0x58 0x66...）
+        let mut base_bytes = [0x66u8; 32];
+        base_bytes[0] = 0x58;
+
+        let p = Ed25519::point_decompress(base_bytes.clone()).expect("basepoint should decompress");
+
+        // compress して元に戻ること
+        let enc = Ed25519::point_compress(&p);
+        assert_eq!(enc, base_bytes);
+    }
+
+    #[test]
+    fn test_point_add_identity_is_neutral_element() {
+        // ベースポイントを使って「単位元が中立元」になっているかを確認
+        let mut base_bytes = [0x66u8; 32];
+        base_bytes[0] = 0x58;
+        let p = Ed25519::point_decompress(base_bytes).expect("basepoint should decompress");
+
+        let id = Ed25519::identity();
+
+        let left = Ed25519::point_add(&id, &p);
+        let right = Ed25519::point_add(&p, &id);
+
+        assert!(Ed25519::point_equal(&left, &p));
+        assert!(Ed25519::point_equal(&right, &p));
+    }
+
+    #[test]
+    fn test_point_equal_true_and_false() {
+        let mut base_bytes = [0x66u8; 32];
+        base_bytes[0] = 0x58;
+
+        let p1 = Ed25519::point_decompress(base_bytes.clone()).expect("basepoint");
+        let p2 = Ed25519::point_decompress(base_bytes).expect("basepoint again");
+        let id = Ed25519::identity();
+
+        assert!(Ed25519::point_equal(&p1, &p2));
+        assert!(!Ed25519::point_equal(&p1, &id));
+    }
+
+    #[test]
+    fn test_point_multiply_consistent_with_repeated_addition() {
+        // 2B = B + B になることを確認して、point_multiply と point_add の整合性をチェック
+        let mut base_bytes = [0x66u8; 32];
+        base_bytes[0] = 0x58;
+
+        let b_for_mul = Ed25519::point_decompress(base_bytes.clone()).expect("basepoint for mul");
+        let b1 = Ed25519::point_decompress(base_bytes.clone()).expect("basepoint for add 1");
+        let b2 = Ed25519::point_decompress(base_bytes).expect("basepoint for add 2");
+
+        let two_b_mul = Ed25519::point_multiply(&BigInt::from(2u8), b_for_mul);
+        let two_b_add = Ed25519::point_add(&b1, &b2);
+
+        assert!(Ed25519::point_equal(&two_b_mul, &two_b_add));
+    }
+
+    #[test]
+    fn test_point_compress_decompress_roundtrip_random_like_scalar() {
+        // 適当なスカラー倍された点でも compress → decompress が保たれることを確認
+        let mut base_bytes = [0x66u8; 32];
+        base_bytes[0] = 0x58;
+        let b = Ed25519::point_decompress(base_bytes).expect("basepoint");
+
+        let scalar = BigInt::from(123u32);
+        let p = Ed25519::point_multiply(&scalar, b);
+        let enc = Ed25519::point_compress(&p);
+        let dec = Ed25519::point_decompress(enc).expect("decompress after scalar multiply");
+
+        assert!(Ed25519::point_equal(&p, &dec));
     }
 }
