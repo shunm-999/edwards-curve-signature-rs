@@ -201,10 +201,32 @@ impl Ed25519 {
 
         Some(Point { x, y, z, t })
     }
+
+    fn secret_expand(secret: &[u8]) -> Option<(BigInt, [u8; 32])> {
+        if secret.len() != 32 {
+            return None;
+        }
+
+        let h = Self::sha512(secret);
+
+        let mut a = BigInt::from_bytes_le(num_bigint::Sign::Plus, &h[0..32]);
+
+        // clamp: a &= (1 << 254) - 8;
+        a &= (BigInt::from(1u8) << 254) - 8;
+        // clamp: a |= 1 << 254;
+        a |= BigInt::from(1u8) << 254;
+
+        // 後ろ 32 バイトを prefix として返す
+        let mut prefix = [0u8; 32];
+        prefix.copy_from_slice(&h[32..64]);
+
+        Some((a, prefix))
+    }
 }
 
 mod tests {
     use super::*;
+    use num_bigint::BigInt;
 
     #[test]
     fn test_sha512() {
@@ -298,5 +320,70 @@ mod tests {
             Ed25519::recover_x(&y, &sign).expect("base point should be recoverable from (y, sign)");
 
         assert_eq!(x, x_expected);
+    }
+
+    #[test]
+    fn test_secret_expand_invalid_length() {
+        // 長さが 32 バイト以外なら None を返す
+        let short = [0u8; 31];
+        let long = [0u8; 33];
+
+        assert!(Ed25519::secret_expand(&short).is_none());
+        assert!(Ed25519::secret_expand(&long).is_none());
+    }
+
+    #[test]
+    fn test_secret_expand_zero_seed() {
+        // seed = 0x00..00（32 バイト）のときの期待値
+        let seed = [0u8; 32];
+        let (a, prefix) = Ed25519::secret_expand(&seed)
+            .expect("secret_expand should return Some for 32-byte seed");
+
+        // 事前に仕様通りに計算した clamped a の値（10 進）
+        let expected_a = BigInt::parse_bytes(
+            b"39325648866980652792715009169219496062012184734522019333892538943312776480336",
+            10,
+        )
+        .expect("failed to parse expected a for zero seed");
+
+        assert_eq!(a, expected_a);
+
+        let expected_prefix: [u8; 32] = [
+            0x0a, 0x6a, 0x85, 0xea, 0xa6, 0x42, 0xda, 0xc8,
+            0x35, 0x42, 0x4b, 0x5d, 0x7c, 0x8d, 0x63, 0x7c,
+            0x00, 0x40, 0x8c, 0x7a, 0x73, 0xda, 0x67, 0x2b,
+            0x7f, 0x49, 0x85, 0x21, 0x42, 0x0b, 0x6d, 0xd3,
+        ];
+
+        assert_eq!(prefix, expected_prefix);
+    }
+
+    #[test]
+    fn test_secret_expand_incrementing_seed() {
+        // seed = 0x00,0x01,...,0x1f のときの期待値
+        let mut seed = [0u8; 32];
+        for (i, b) in seed.iter_mut().enumerate() {
+            *b = i as u8;
+        }
+
+        let (a, prefix) = Ed25519::secret_expand(&seed)
+            .expect("secret_expand should return Some for 32-byte seed");
+
+        let expected_a = BigInt::parse_bytes(
+            b"50459379271018302582465998844449622265826330103819895252966304478993432089656",
+            10,
+        )
+        .expect("failed to parse expected a for incrementing seed");
+
+        assert_eq!(a, expected_a);
+
+        let expected_prefix: [u8; 32] = [
+            0xa9, 0xd7, 0x18, 0x62, 0xa3, 0xe5, 0x74, 0x6b,
+            0x57, 0x1b, 0xe3, 0xd1, 0x87, 0xb0, 0x04, 0x10,
+            0x46, 0xf5, 0x2e, 0xbd, 0x85, 0x0c, 0x7c, 0xbd,
+            0x5f, 0xde, 0x8e, 0xe3, 0x84, 0x73, 0xb6, 0x49,
+        ];
+
+        assert_eq!(prefix, expected_prefix);
     }
 }
