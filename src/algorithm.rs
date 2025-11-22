@@ -169,6 +169,16 @@ impl Ed25519 {
 
         Some(x)
     }
+
+    fn point_compress(p: &Point) -> Vec<u8> {
+        let z_inverse = Self::mod_p_inverse(&p.z);
+
+        let x = (&p.x * &z_inverse) % &*BASE_FIELD_P;
+        let y = (&p.y * &z_inverse) % &*BASE_FIELD_P;
+
+        let x_sign = &x & BigInt::from(1u8);
+        (&y | &(x_sign.clone() << 255)).to_bytes_le().1
+    }
 }
 
 mod tests {
@@ -252,18 +262,18 @@ mod tests {
             b"46316835694926478169428394003475163141307993866256225615783033603165251855960",
             10,
         )
-            .unwrap();
+        .unwrap();
         let x_expected = BigInt::parse_bytes(
             b"15112221349535400772501151409588531511454012693041857206046113283949847762202",
             10,
         )
-            .unwrap();
+        .unwrap();
 
         // 公開鍵エンコード時と同じく、sign は x の LSB（最下位ビット）
         let sign = &x_expected & BigInt::from(1u8);
 
-        let x = Ed25519::recover_x(&y, &sign)
-            .expect("base point should be recoverable from (y, sign)");
+        let x =
+            Ed25519::recover_x(&y, &sign).expect("base point should be recoverable from (y, sign)");
 
         assert_eq!(x, x_expected);
     }
