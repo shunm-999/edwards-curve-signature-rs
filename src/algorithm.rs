@@ -120,6 +120,39 @@ impl Ed25519 {
         }
         true
     }
+
+    fn recover_x(y: &BigInt, sign: &BigInt) -> Option<BigInt> {
+        if y > &*BASE_FIELD_P {
+            return None;
+        }
+        let x2: BigInt = (y * y - 1)
+            * Self::mod_p_inverse(&(Self::get_base_field_d() * y * y - BigInt::from(1u8)));
+
+        if x2 == BigInt::from(0u8) {
+            return if *sign == BigInt::from(0u8) {
+                None
+            } else {
+                Some(BigInt::from(0u8))
+            };
+        }
+        let mut x = x2.modpow(
+            &(&*BASE_FIELD_P + BigInt::from(3u8) / BigInt::from(8u8)),
+            &*BASE_FIELD_P,
+        );
+
+        if &x * &x - &x2 % &*BASE_FIELD_P != BigInt::from(0u8) {
+            x = x * &*MOD_P_SQRT_M1 % &*BASE_FIELD_P
+        }
+
+        if &x * &x - &x2 % &*BASE_FIELD_P != BigInt::from(0u8) {
+            return None;
+        }
+
+        if &x & BigInt::from(1u8) != BigInt::from(0u8) {
+            x = &*BASE_FIELD_P - &x;
+        }
+        Some(x)
+    }
 }
 
 mod tests {
