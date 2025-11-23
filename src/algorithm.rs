@@ -294,6 +294,16 @@ impl Ed25519 {
 
         Some((a, prefix))
     }
+
+    fn secret_to_public_key(secret: &[u8]) -> Option<[u8; 32]> {
+        let (a, _prefix) = Self::secret_expand(secret)?;
+
+        let base_point = Self::get_base_point();
+        let a_b = Self::point_multiply(&a, base_point);
+        let public_key_bytes = Self::point_compress(&a_b);
+
+        Some(public_key_bytes)
+    }
 }
 
 mod tests {
@@ -540,5 +550,35 @@ mod tests {
         let enc = Ed25519::point_compress(&p);
         let dec = Ed25519::point_decompress(enc).expect("decompress after scalar multiply");
         assert!(Ed25519::point_equal(&p, &dec));
+    }
+
+    #[test]
+    fn test_secret_to_public_key_rfc8032_test1() {
+        // RFC 8032, Section 7.1, Test 1
+        // SECRET KEY:
+        // 9d61b19deffd5a60ba844af492ec2cc4
+        // 4449c5697b326919703bac031cae7f60
+        // PUBLIC KEY:
+        // d75a980182b10ab7d54bfed3c964073a
+        // 0ee172f3daa62325af021a68f707511a
+
+        let secret: [u8; 32] = [
+            0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60,
+            0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c, 0xc4,
+            0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19,
+            0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae, 0x7f, 0x60,
+        ];
+
+        let expected_public_key: [u8; 32] = [
+            0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7,
+            0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07, 0x3a,
+            0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25,
+            0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a,
+        ];
+
+        let public_key = Ed25519::secret_to_public_key(&secret)
+            .expect("secret_to_public_key should return Some for a valid 32-byte secret");
+
+        assert_eq!(public_key, expected_public_key);
     }
 }
