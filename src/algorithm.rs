@@ -340,6 +340,46 @@ impl Ed25519 {
 
         Some(signature)
     }
+    
+    fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
+        if public_key.len() != 32 || signature.len() != 64 {
+            return false;
+        }
+
+        let a_point = match Self::point_decompress(public_key.try_into().unwrap()) {
+            Some(p) => p,
+            None => return false,
+        };
+
+        let r_bytes: [u8; 32] = signature[..32].try_into().unwrap();
+        let s_bytes: [u8; 32] = signature[32..64].try_into().unwrap();
+
+        let r_point = match Self::point_decompress(r_bytes) {
+            Some(p) => p,
+            None => return false,
+        };
+
+        let s = BigUint::from_bytes_le(&s_bytes);
+        if s >= *BASE_FIELD_Q {
+            return false;
+        }
+
+        // h = SHA-512(R || A || M) mod q
+        let mut h_input = Vec::with_capacity(32 + 32 + message.len());
+        h_input.extend_from_slice(&r_bytes);
+        h_input.extend_from_slice(public_key);
+        h_input.extend_from_slice(message);
+        let h = Self::sha512_mod_q(&h_input);
+
+        let base_point = Self::get_base_point();
+
+        // S * B == R + h * A
+        let s_b = Self::point_multiply(&s, base_point);
+        let h_a = Self::point_multiply(&h, a_point);
+        let r_plus_h_a = Self::point_add(&r_point, &h_a);
+
+        Self::point_equal(&s_b, &r_plus_h_a)
+    }
 }
 
 mod tests {
