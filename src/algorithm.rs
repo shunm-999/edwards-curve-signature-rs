@@ -304,6 +304,42 @@ impl Ed25519 {
 
         Some(public_key_bytes)
     }
+
+    fn sign(secret: &[u8], message: &[u8]) -> Option<[u8; 64]> {
+        let (a, prefix) = Self::secret_expand(secret)?;
+
+        let base_point = Self::get_base_point();
+
+        // A = a * B
+        let public_key_bytes = Self::point_compress(&Self::point_multiply(&a, base_point.clone()));
+
+        // r = SHA-512(prefix || message) mod q
+        let mut r_input = Vec::with_capacity(32 + message.len());
+        r_input.extend_from_slice(&prefix);
+        r_input.extend_from_slice(message);
+        let r = Self::sha512_mod_q(&r_input);
+
+        // R = r * B
+        let r_b = Self::point_multiply(&r, base_point.clone());
+        let r_bytes = Self::point_compress(&r_b);
+
+        // S = (r + SHA-512(R || A || M) * a) mod q
+        let mut h_input = Vec::with_capacity(32 + 32 + message.len());
+        h_input.extend_from_slice(&r_bytes);
+        h_input.extend_from_slice(&public_key_bytes);
+        h_input.extend_from_slice(message);
+        let h = Self::sha512_mod_q(&h_input);
+        let s = (r + h * a) % &*BASE_FIELD_Q;
+
+        // シグネチャは R || S
+        let mut signature = [0u8; 64];
+        signature[..32].copy_from_slice(&r_bytes);
+        let s_bytes = s.to_bytes_le();
+        let len = s_bytes.len().min(32);
+        signature[32..32 + len].copy_from_slice(&s_bytes[..len]);
+
+        Some(signature)
+    }
 }
 
 mod tests {
@@ -563,17 +599,15 @@ mod tests {
         // 0ee172f3daa62325af021a68f707511a
 
         let secret: [u8; 32] = [
-            0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60,
-            0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c, 0xc4,
-            0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19,
-            0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae, 0x7f, 0x60,
+            0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec,
+            0x2c, 0xc4, 0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03,
+            0x1c, 0xae, 0x7f, 0x60,
         ];
 
         let expected_public_key: [u8; 32] = [
-            0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7,
-            0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07, 0x3a,
-            0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25,
-            0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a,
+            0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64,
+            0x07, 0x3a, 0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68,
+            0xf7, 0x07, 0x51, 0x1a,
         ];
 
         let public_key = Ed25519::secret_to_public_key(&secret)
