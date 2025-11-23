@@ -7,11 +7,11 @@ enum SignatureAlgorithm {
 }
 
 pub(crate) trait Signer {
-    fn sign(&self, message: &[u8]) -> Vec<u8>;
+    fn sign(&self, secret: &[u8], message: &[u8]) -> Option<[u8; 64]>;
 }
 
 pub(crate) trait Verifier {
-    fn verify(&self, message: &[u8], signature: &[u8]) -> bool;
+    fn verify(&self, public_key: &[u8], message: &[u8], signature: &[u8]) -> bool;
 }
 
 pub(crate) struct EdDsaSigner {
@@ -34,34 +34,34 @@ impl EdDsaSigner {
 }
 
 impl Signer for EdDsaSigner {
-    fn sign(&self, message: &[u8]) -> Vec<u8> {
+    fn sign(&self, secret: &[u8], message: &[u8]) -> Option<[u8; 64]> {
         match self.algorithm {
             SignatureAlgorithm::Ed448 => {
                 let signer = Ed448Signer {};
-                signer.sign(message)
+                signer.sign(secret, message)
             }
             SignatureAlgorithm::Ed25519 => {
                 let signer = Ed25519Signer {
                     ed25519: &self.ed25519,
                 };
-                signer.sign(message)
+                signer.sign(secret, message)
             }
         }
     }
 }
 
 impl Verifier for EdDsaVerifier {
-    fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
+    fn verify(&self, public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
         match self.algorithm {
             SignatureAlgorithm::Ed448 => {
                 let verifier = Ed448Verifier {};
-                verifier.verify(message, signature)
+                verifier.verify(public_key, message, signature)
             }
             SignatureAlgorithm::Ed25519 => {
                 let verifier = Ed25519Verifier {
                     ed25519: &self.ed25519,
                 };
-                verifier.verify(message, signature)
+                verifier.verify(public_key, message, signature)
             }
         }
     }
@@ -79,29 +79,29 @@ struct Ed25519Verifier<'a> {
 }
 
 impl Signer for Ed448Signer {
-    fn sign(&self, message: &[u8]) -> Vec<u8> {
+    fn sign(&self, secret: &[u8], message: &[u8]) -> Option<[u8; 64]> {
         // Implement Ed448 signing logic here
-        vec![]
+        todo!()
     }
 }
 
 impl Verifier for Ed448Verifier {
-    fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
+    fn verify(&self, public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
         // Implement Ed448 verification logic here
         true
     }
 }
 
 impl Signer for Ed25519Signer<'_> {
-    fn sign(&self, message: &[u8]) -> Vec<u8> {
+    fn sign(&self, secret: &[u8], message: &[u8]) -> Option<[u8; 64]> {
         // Implement Ed25519 signing logic here
-        vec![]
+        Ed25519Signer::sign(self, secret, message)
     }
 }
 
 impl Verifier for Ed25519Verifier<'_> {
-    fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
+    fn verify(&self, public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
         // Implement Ed25519 verification logic here
-        true
+        Ed25519Verifier::verify(self, public_key, message, signature)
     }
 }
