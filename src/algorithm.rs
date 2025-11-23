@@ -1,23 +1,26 @@
-use num_bigint::BigInt;
+use num_bigint::BigUint;
 use once_cell::sync::Lazy;
 use sha2::{Digest, Sha512};
 
-static BASE_FIELD_P: Lazy<BigInt> = Lazy::new(|| BigInt::from(2u8).pow(255) - BigInt::from(19u8));
+static BASE_FIELD_P: Lazy<BigUint> =
+    Lazy::new(|| BigUint::from(2u8).pow(255) - BigUint::from(19u8));
 
-static BASE_FIELD_Q: Lazy<BigInt> = Lazy::new(|| {
-    BigInt::from(2u8).pow(252) + BigInt::from(27742317777372353535851937790883648493u128)
+static BASE_FIELD_Q: Lazy<BigUint> = Lazy::new(|| {
+    BigUint::from(2u8).pow(252) + BigUint::from(27742317777372353535851937790883648493u128)
 });
 
-static MOD_P_SQRT_M1: Lazy<BigInt> = Lazy::new(|| {
-    let exponent = (&*BASE_FIELD_P - BigInt::from(1u8)) / BigInt::from(4u8);
-    BigInt::from(2u8).modpow(&exponent, &*BASE_FIELD_P)
+static MOD_P_SQRT_M1: Lazy<BigUint> = Lazy::new(|| {
+    // sqrt(-1) mod p = 2^((p-1)/4) mod p
+    let exponent = (&*BASE_FIELD_P - BigUint::from(1u8)) / BigUint::from(4u8);
+    BigUint::from(2u8).modpow(&exponent, &*BASE_FIELD_P)
 });
 
+#[derive(Clone, Debug)]
 struct Point {
-    x: BigInt,
-    y: BigInt,
-    z: BigInt,
-    t: BigInt,
+    x: BigUint,
+    y: BigUint,
+    z: BigUint,
+    t: BigUint,
 }
 
 pub(crate) struct Ed25519 {}
@@ -29,37 +32,72 @@ impl Ed25519 {
         sha512.finalize().into()
     }
 
-    fn mod_p_inverse(x: &BigInt) -> BigInt {
-        // p - 2
-        let exponent = &*BASE_FIELD_P - BigInt::from(2u8);
+    /// a^-1 mod p
+    fn mod_p_inverse(x: &BigUint) -> BigUint {
+        // exponent = p - 2
+        let exponent = &*BASE_FIELD_P - BigUint::from(2u8);
         x.modpow(&exponent, &*BASE_FIELD_P)
+    }
+
+    fn add_mod(a: &BigUint, b: &BigUint, p: &BigUint) -> BigUint {
+        (a + b) % p
+    }
+
+    fn sub_mod(a: &BigUint, b: &BigUint, p: &BigUint) -> BigUint {
+        if a >= b { (a - b) % p } else { (a + p - b) % p }
+    }
+
+    fn mul_mod(a: &BigUint, b: &BigUint, p: &BigUint) -> BigUint {
+        (a * b) % p
     }
 
     // 単位元（Ed25519 の extended coordinates）
     fn identity() -> Point {
         Point {
-            x: BigInt::from(0),
-            y: BigInt::from(1),
-            z: BigInt::from(1),
-            t: BigInt::from(0),
+            x: BigUint::from(0u8),
+            y: BigUint::from(1u8),
+            z: BigUint::from(1u8),
+            t: BigUint::from(0u8),
         }
     }
 
-    fn get_base_field_d() -> BigInt {
-        let x = BigInt::from(121666u32);
-        let raw_d = -121665 * Self::mod_p_inverse(&x);
+    fn get_base_field_d() -> BigUint {
+        // d = -121665 / 121666 mod p
         let p = &*BASE_FIELD_P;
-        ((raw_d % p) + p) % p
+        let num = Self::sub_mod(&p, &BigUint::from(121665u32), &p); // -121665 ≡ p - 121665 (mod p)
+        let den = BigUint::from(121666u32);
+        let den_inv = Self::mod_p_inverse(&den);
+        Self::mul_mod(&num, &den_inv, p)
     }
 
-    fn sha512_mod_q(bytes: &[u8]) -> BigInt {
+    fn get_base_point() -> Point {
+        let p = &*BASE_FIELD_P;
+
+        // By = 4/5 mod p
+        let four = BigUint::from(4u8);
+        let five = BigUint::from(5u8);
+        let inv_five = Self::mod_p_inverse(&five);
+        let y = Self::mul_mod(&four, &inv_five, p);
+
+        // Bx は recover_x で求める
+        let x =
+            Self::recover_x(&y, &BigUint::from(0u8)).expect("failed to recover x for base point");
+
+        let z = BigUint::from(1u8);
+        let t = Self::mul_mod(&x, &y, p);
+        Point { x, y, z, t }
+    }
+
+    fn sha512_mod_q(bytes: &[u8]) -> BigUint {
         let hash_bytes = Self::sha512(bytes);
-        let hash_int = BigInt::from_bytes_le(num_bigint::Sign::Plus, &hash_bytes);
+        let hash_int = BigUint::from_bytes_le(&hash_bytes);
         hash_int % &*BASE_FIELD_Q
     }
 
     fn point_add(p: &Point, q: &Point) -> Point {
-        let base_field_d = Self::get_base_field_d();
+        let field_p = &*BASE_FIELD_P;
+        let d = Self::get_base_field_d();
+
         let p_x = &p.x;
         let p_y = &p.y;
         let p_z = &p.z;
@@ -70,30 +108,49 @@ impl Ed25519 {
         let q_z = &q.z;
         let q_t = &q.t;
 
-        let a = (p_y - p_x) * (q_y - q_x) % &*BASE_FIELD_P;
-        let b = (p_y + p_x) * (q_y + q_x) % &*BASE_FIELD_P;
-        let c = (BigInt::from(2u8) * p_t * q_t * base_field_d) % &*BASE_FIELD_P;
-        let d = (BigInt::from(2u8) * p_z * q_z) % &*BASE_FIELD_P;
-        let e = (&b - &a) % &*BASE_FIELD_P;
-        let f = (&d - &c) % &*BASE_FIELD_P;
-        let g = (&d + &c) % &*BASE_FIELD_P;
-        let h = (&b + &a) % &*BASE_FIELD_P;
+        let a = Self::mul_mod(
+            &Self::sub_mod(p_y, p_x, field_p),
+            &Self::sub_mod(q_y, q_x, field_p),
+            field_p,
+        );
+        let b = Self::mul_mod(
+            &Self::add_mod(p_y, p_x, field_p),
+            &Self::add_mod(q_y, q_x, field_p),
+            field_p,
+        );
+
+        let two = BigUint::from(2u8);
+
+        let c = Self::mul_mod(
+            &Self::mul_mod(&two, p_t, field_p),
+            &Self::mul_mod(q_t, &d, field_p),
+            field_p,
+        );
+
+        let d_ = Self::mul_mod(&two, &Self::mul_mod(p_z, q_z, field_p), field_p);
+
+        let e = Self::sub_mod(&b, &a, field_p);
+        let f = Self::sub_mod(&d_, &c, field_p);
+        let g = Self::add_mod(&d_, &c, field_p);
+        let h = Self::add_mod(&b, &a, field_p);
 
         Point {
-            x: (&e * &f) % &*BASE_FIELD_P,
-            y: (&g * &h) % &*BASE_FIELD_P,
-            z: (&f * &g) % &*BASE_FIELD_P,
-            t: (&e * &h) % &*BASE_FIELD_P,
+            x: Self::mul_mod(&e, &f, field_p),
+            y: Self::mul_mod(&g, &h, field_p),
+            z: Self::mul_mod(&f, &g, field_p),
+            t: Self::mul_mod(&e, &h, field_p),
         }
     }
 
-    fn point_multiply(scalar: &BigInt, point: Point) -> Point {
+    fn point_multiply(scalar: &BigUint, point: Point) -> Point {
         let mut q = Self::identity();
         let mut addend = point;
 
         let mut k = scalar.clone();
-        while k > BigInt::from(0u8) {
-            if &k & BigInt::from(1u8) == BigInt::from(1u8) {
+        let one = BigUint::from(1u8);
+
+        while k > BigUint::from(0u8) {
+            if (&k & &one) == one {
                 q = Self::point_add(&q, &addend);
             }
             addend = Self::point_add(&addend, &addend);
@@ -104,6 +161,8 @@ impl Ed25519 {
     }
 
     fn point_equal(p: &Point, q: &Point) -> bool {
+        let field_p = &*BASE_FIELD_P;
+
         let p_x = &p.x;
         let p_y = &p.y;
         let p_z = &p.z;
@@ -112,58 +171,62 @@ impl Ed25519 {
         let q_y = &q.y;
         let q_z = &q.z;
 
-        if (p_x * q_z - q_x * p_z) % &*BASE_FIELD_P != BigInt::from(0u8) {
+        // 射影座標の等価性:
+        // P == Q <=> x1/z1 == x2/z2 && y1/z1 == y2/z1 (mod p)
+        // <=> x1*z2 == x2*z1 && y1*z2 == y2*z1 (mod p)
+        if Self::mul_mod(p_x, q_z, field_p) != Self::mul_mod(q_x, p_z, field_p) {
             return false;
         }
-        if (p_y * q_z - q_y * p_z) % &*BASE_FIELD_P != BigInt::from(0u8) {
+        if Self::mul_mod(p_y, q_z, field_p) != Self::mul_mod(q_y, p_z, field_p) {
             return false;
         }
         true
     }
 
-    fn recover_x(y: &BigInt, sign: &BigInt) -> Option<BigInt> {
+    fn recover_x(y: &BigUint, sign: &BigUint) -> Option<BigUint> {
         let p = &*BASE_FIELD_P;
-        let one = BigInt::from(1u8);
+        let one = BigUint::from(1u8);
 
         // 0 <= y < p でなければダメ
         if y >= p {
             return None;
         }
 
-        let y2 = (y * y) % p;
+        let y2 = Self::mul_mod(y, y, p);
 
         // x^2 = (y^2 - 1) / (1 + d y^2)
-        let num = (y2.clone() - &one + p) % p;
-        let den = (Self::get_base_field_d() * &y2 + &one) % p;
+        let num = Self::sub_mod(&y2, &one, p); // y^2 - 1 (mod p)
+        let den = Self::add_mod(&Self::mul_mod(&Self::get_base_field_d(), &y2, p), &one, p);
         let den_inv = Self::mod_p_inverse(&den);
-        let x2 = (num * den_inv) % p;
+        let x2 = Self::mul_mod(&num, &den_inv, p);
 
-        if x2 == BigInt::from(0u8) {
+        if x2 == BigUint::from(0u8) {
             // x = 0 のときは sign が 0 なら OK, 1 なら reject
-            return if *sign == BigInt::from(0u8) {
-                Some(BigInt::from(0u8))
+            return if *sign == BigUint::from(0u8) {
+                Some(BigUint::from(0u8))
             } else {
                 None
             };
         }
 
         // sqrt: x = x2^((p+3)/8)
-        let exp = (p.clone() + BigInt::from(3u8)) >> 3;
+        let exp = (&*BASE_FIELD_P + BigUint::from(3u8)) >> 3;
         let mut x = x2.modpow(&exp, p);
 
         // チェック (1回目)
-        let mut check = (&x * &x) % p;
+        let mut check = Self::mul_mod(&x, &x, p);
         if check != x2 {
             // もう一回、sqrt(-1) を掛けてみる
-            x = (&x * &*MOD_P_SQRT_M1) % p;
-            check = (&x * &x) % p;
+            x = Self::mul_mod(&x, &*MOD_P_SQRT_M1, p);
+            check = Self::mul_mod(&x, &x, p);
             if check != x2 {
                 return None;
             }
         }
 
         // 符号ビットに合わせる
-        if (&x & BigInt::from(1u8)) != (sign & BigInt::from(1u8)) {
+        let lsb_mask = BigUint::from(1u8);
+        if (&x & &lsb_mask) != (sign & &lsb_mask) {
             x = p - &x;
         }
 
@@ -171,50 +234,59 @@ impl Ed25519 {
     }
 
     fn point_compress(p: &Point) -> [u8; 32] {
+        let field_p = &*BASE_FIELD_P;
+
         let z_inverse = Self::mod_p_inverse(&p.z);
 
-        let x = (&p.x * &z_inverse) % &*BASE_FIELD_P;
-        let y = (&p.y * &z_inverse) % &*BASE_FIELD_P;
+        let x = Self::mul_mod(&p.x, &z_inverse, field_p);
+        let mut y = Self::mul_mod(&p.y, &z_inverse, field_p);
 
-        let x_sign = &x & BigInt::from(1u8);
-        let y = (&y | &(x_sign.clone() << 255)).to_bytes_le().1;
+        let x_sign = &x & BigUint::from(1u8);
 
+        // y | (x_sign << 255)
+        y |= &x_sign << 255;
+
+        let y_bytes = y.to_bytes_le();
         let mut bytes = [0u8; 32];
-        bytes[..y.len()].copy_from_slice(&y);
+        let len = y_bytes.len().min(32);
+        bytes[..len].copy_from_slice(&y_bytes[..len]);
         bytes
     }
 
     fn point_decompress(bytes: [u8; 32]) -> Option<Point> {
-        let mut y = BigInt::from_bytes_le(num_bigint::Sign::Plus, &bytes);
+        let field_p = &*BASE_FIELD_P;
 
-        let sign = &y.clone() >> 255;
-        y = y & ((BigInt::from(1u8) << 255) - BigInt::from(1u8));
+        let mut y = BigUint::from_bytes_le(&bytes);
 
-        let x = Self::recover_x(&y, &BigInt::from(sign));
-        if x.is_none() {
-            return None;
-        }
-        let x = x.unwrap();
+        // sign bit は bit 255 に入っている（LSB-firstで見たときの MSB）
+        let sign = (&y >> 255) & BigUint::from(1u8);
 
-        let z = BigInt::from(1u8);
-        let t = (&x * &y) % &*BASE_FIELD_P;
+        // y の 255 ビット目をクリアして、素の y 座標に戻す
+        let mask = (BigUint::from(1u8) << 255) - BigUint::from(1u8);
+        y &= mask;
+
+        let x = Self::recover_x(&y, &sign)?;
+        let z = BigUint::from(1u8);
+        let t = Self::mul_mod(&x, &y, field_p);
 
         Some(Point { x, y, z, t })
     }
 
-    fn secret_expand(secret: &[u8]) -> Option<(BigInt, [u8; 32])> {
+    fn secret_expand(secret: &[u8]) -> Option<(BigUint, [u8; 32])> {
         if secret.len() != 32 {
             return None;
         }
 
         let h = Self::sha512(secret);
 
-        let mut a = BigInt::from_bytes_le(num_bigint::Sign::Plus, &h[0..32]);
+        let mut a = BigUint::from_bytes_le(&h[0..32]);
 
-        // clamp: a &= (1 << 254) - 8;
-        a &= (BigInt::from(1u8) << 254) - 8;
-        // clamp: a |= 1 << 254;
-        a |= BigInt::from(1u8) << 254;
+        // clamp:
+        // a &= (1 << 254) - 8;
+        // a |= 1 << 254;
+        let mask = (BigUint::from(1u8) << 254) - BigUint::from(8u8);
+        a &= &mask;
+        a |= BigUint::from(1u8) << 254;
 
         // 後ろ 32 バイトを prefix として返す
         let mut prefix = [0u8; 32];
@@ -226,7 +298,6 @@ impl Ed25519 {
 
 mod tests {
     use super::*;
-    use num_bigint::BigInt;
 
     #[test]
     fn test_sha512() {
@@ -249,10 +320,10 @@ mod tests {
     #[test]
     fn test_mod_p_inverse() {
         for i in 1u32..1000 {
-            let x = BigInt::from(i);
+            let x = BigUint::from(i);
             let inv_x = Ed25519::mod_p_inverse(&x);
             let product = (&x * &inv_x) % &*BASE_FIELD_P;
-            assert_eq!(product, BigInt::from(1u8));
+            assert_eq!(product, BigUint::from(1u8));
         }
     }
 
@@ -261,7 +332,7 @@ mod tests {
         let d = Ed25519::get_base_field_d();
 
         // 仕様で決まっている Ed25519 の d
-        let expected = BigInt::parse_bytes(
+        let expected = BigUint::parse_bytes(
             b"37095705934669439343138083508754565189542113879843219016388785533085940283555",
             10,
         )
@@ -275,8 +346,7 @@ mod tests {
         // y >= p は不正入力として None を返す
         let p = &*BASE_FIELD_P;
         let y = p.clone(); // y == p は NG
-        let sign = BigInt::from(0u8);
-
+        let sign = BigUint::from(0u8);
         let x = Ed25519::recover_x(&y, &sign);
         assert!(x.is_none());
     }
@@ -286,13 +356,11 @@ mod tests {
         // 単位元 (x, y) = (0, 1) のテスト
         // 符号ビット 0 -> x = 0 が返ってくる
         // 符号ビット 1 -> 非正規形として None
-        let y = BigInt::from(1u8);
-
-        let sign0 = BigInt::from(0u8);
+        let y = BigUint::from(1u8);
+        let sign0 = BigUint::from(0u8);
         let x0 = Ed25519::recover_x(&y, &sign0);
-        assert_eq!(x0, Some(BigInt::from(0u8)));
-
-        let sign1 = BigInt::from(1u8);
+        assert_eq!(x0, Some(BigUint::from(0u8)));
+        let sign1 = BigUint::from(1u8);
         let x1 = Ed25519::recover_x(&y, &sign1);
         assert!(x1.is_none());
     }
@@ -302,23 +370,21 @@ mod tests {
         // Ed25519 のベースポイント B の座標
         // Bx, By は仕様で決まっている定数
         // B = (1511222..., 4631683... )
-        let y = BigInt::parse_bytes(
+        let y = BigUint::parse_bytes(
             b"46316835694926478169428394003475163141307993866256225615783033603165251855960",
             10,
         )
         .unwrap();
-        let x_expected = BigInt::parse_bytes(
+        let x_expected = BigUint::parse_bytes(
             b"15112221349535400772501151409588531511454012693041857206046113283949847762202",
             10,
         )
         .unwrap();
 
         // 公開鍵エンコード時と同じく、sign は x の LSB（最下位ビット）
-        let sign = &x_expected & BigInt::from(1u8);
-
+        let sign = &x_expected & BigUint::from(1u8);
         let x =
             Ed25519::recover_x(&y, &sign).expect("base point should be recoverable from (y, sign)");
-
         assert_eq!(x, x_expected);
     }
 
@@ -340,7 +406,7 @@ mod tests {
             .expect("secret_expand should return Some for 32-byte seed");
 
         // 事前に仕様通りに計算した clamped a の値（10 進）
-        let expected_a = BigInt::parse_bytes(
+        let expected_a = BigUint::parse_bytes(
             b"39325648866980652792715009169219496062012184734522019333892538943312776480336",
             10,
         )
@@ -368,7 +434,7 @@ mod tests {
         let (a, prefix) = Ed25519::secret_expand(&seed)
             .expect("secret_expand should return Some for 32-byte seed");
 
-        let expected_a = BigInt::parse_bytes(
+        let expected_a = BigUint::parse_bytes(
             b"50459379271018302582465998844449622265826330103819895252966304478993432089656",
             10,
         )
@@ -395,7 +461,6 @@ mod tests {
         assert_eq!(r1, r2);
 
         // 0 <= r < q になっていること
-        assert!(r1 >= BigInt::from(0u8));
         assert!(r1 < *BASE_FIELD_Q);
     }
 
@@ -461,24 +526,19 @@ mod tests {
         let b1 = Ed25519::point_decompress(base_bytes.clone()).expect("basepoint for add 1");
         let b2 = Ed25519::point_decompress(base_bytes).expect("basepoint for add 2");
 
-        let two_b_mul = Ed25519::point_multiply(&BigInt::from(2u8), b_for_mul);
+        let two_b_mul = Ed25519::point_multiply(&BigUint::from(2u8), b_for_mul);
         let two_b_add = Ed25519::point_add(&b1, &b2);
-
         assert!(Ed25519::point_equal(&two_b_mul, &two_b_add));
     }
 
     #[test]
-    fn test_point_compress_decompress_roundtrip_random_like_scalar() {
+    fn test_point_compress_decompress_round_trip_random_like_scalar() {
         // 適当なスカラー倍された点でも compress → decompress が保たれることを確認
-        let mut base_bytes = [0x66u8; 32];
-        base_bytes[0] = 0x58;
-        let b = Ed25519::point_decompress(base_bytes).expect("basepoint");
-
-        let scalar = BigInt::from(123u32);
+        let b = Ed25519::get_base_point();
+        let scalar = BigUint::from(123u32);
         let p = Ed25519::point_multiply(&scalar, b);
         let enc = Ed25519::point_compress(&p);
         let dec = Ed25519::point_decompress(enc).expect("decompress after scalar multiply");
-
         assert!(Ed25519::point_equal(&p, &dec));
     }
 }
