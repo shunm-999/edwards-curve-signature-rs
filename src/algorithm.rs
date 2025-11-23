@@ -954,4 +954,50 @@ mod tests {
         bad_signature[0] ^= 0x01;
         assert!(!Ed25519::verify(&public_key, &message, &bad_signature));
     }
+
+    #[test]
+    fn test_sign_and_verify_rfc8032_test_abc() {
+        // RFC 8032 / Ed25519 TEST ABC
+        let secret_vec = hex_to_bytes(
+            "833fe62409237b9d62ec77587520911e\
+             9a759cec1d19755b7da901b96dca3d42",
+        );
+        let mut secret = [0u8; 32];
+        secret.copy_from_slice(&secret_vec);
+
+        let public_key_vec = hex_to_bytes(
+            "ec172b93ad5e563bf4932c70e1245034\
+             c35467ef2efd4d64ebf819683467e2bf",
+        );
+        let mut public_key = [0u8; 32];
+        public_key.copy_from_slice(&public_key_vec);
+
+        let message_hex = "
+            ddaf35a193617abacc417349ae204131
+            12e6fa4e89a97ea20a9eeee64b55d39a
+            2192992a274fc1a836ba3c23a3feebbd
+            454d4423643ce80e2a9ac94fa54ca49f
+        ";
+        let message = hex_to_bytes(message_hex);
+
+        let expected_signature = hex_to_bytes(
+            "dc2a4459e7369633a52b1bf277839a00\
+             201009a3efbf3ecb69bea2186c26b589\
+             09351fc9ac90b3ecfdfbc7c66431e030\
+             3dca179c138ac17ad9bef1177331a704",
+        );
+
+        let derived_public_key = Ed25519::secret_to_public_key(&secret)
+            .expect("secret_to_public_key should succeed for valid seed");
+        assert_eq!(derived_public_key, public_key);
+
+        let signature = Ed25519::sign(&secret, &message).expect("sign should succeed");
+        assert_eq!(signature.to_vec(), expected_signature);
+
+        assert!(Ed25519::verify(&public_key, &message, &signature));
+
+        let mut bad_signature = signature;
+        bad_signature[0] ^= 0x01;
+        assert!(!Ed25519::verify(&public_key, &message, &bad_signature));
+    }
 }
