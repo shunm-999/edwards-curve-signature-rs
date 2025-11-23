@@ -305,7 +305,7 @@ impl Ed25519 {
         Some(public_key_bytes)
     }
 
-    fn sign(secret: &[u8], message: &[u8]) -> Option<[u8; 64]> {
+    pub(crate) fn sign(secret: &[u8], message: &[u8]) -> Option<[u8; 64]> {
         let (a, prefix) = Self::secret_expand(secret)?;
 
         let base_point = Self::get_base_point();
@@ -341,7 +341,7 @@ impl Ed25519 {
         Some(signature)
     }
 
-    fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
+    pub(crate) fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
         if public_key.len() != 32 || signature.len() != 64 {
             return false;
         }
