@@ -1,5 +1,9 @@
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
 use clap::{Parser, Subcommand};
+use regex::Regex;
 use std::io::stdin;
+use std::str::Lines;
 use std::{fs, io};
 
 #[derive(Debug, Parser)]
@@ -14,6 +18,8 @@ pub(crate) enum SubCommands {
     Sign {
         #[clap(long = "in", ignore_case = true)]
         message_file_path: Option<String>,
+        #[clap(long = "key", ignore_case = true, required = true)]
+        secret_file_path: String,
     },
 }
 
@@ -21,7 +27,11 @@ pub(crate) trait ReadMessage {
     fn read_message(&self) -> io::Result<Vec<u8>>;
 }
 
-trait WriteSignature {
+pub(crate) trait ReadSecret {
+    fn read_secret(&self) -> io::Result<Vec<u8>>;
+}
+
+pub(crate) trait WriteSignature {
     fn write_signature(&self, signature: &[u8]) -> io::Result<()>;
 }
 
@@ -41,4 +51,76 @@ impl ReadMessage for MessageReader {
             MessageReader::File(path) => fs::read(path.to_owned()),
         }
     }
+}
+
+pub(crate) enum SecretReader {
+    PemFile(String),
+}
+
+struct PemSection(Vec<u8>);
+
+impl ReadSecret for SecretReader {
+    fn read_secret(&self) -> io::Result<Vec<u8>> {
+        match self {
+            SecretReader::PemFile(path) => {
+                let content = fs::read_to_string(path.to_owned())?;
+                let pem_sections = read_pem_sections(content.lines())?;
+
+                let pem_section = pem_sections.first().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "No PEM sections found")
+                })?;
+
+                Ok(pem_section.0.clone())
+            }
+        }
+    }
+}
+
+fn read_pem_sections(lines: Lines<'_>) -> io::Result<Vec<PemSection>> {
+    let mut sections = Vec::new();
+    let mut iter = lines.peekable();
+
+    while iter.peek().is_some() {
+        let section = read_pem_section(&mut iter)?;
+        sections.push(section);
+    }
+    Ok(sections)
+}
+
+fn read_pem_section<'a, I>(lines: &mut I) -> io::Result<PemSection>
+where
+    I: Iterator<Item = &'a str>,
+{
+    let begin_section = Regex::new(r"-----BEGIN ([A-Z ]+)-----").unwrap();
+    let end_section = Regex::new(r"-----END ([A-Z ]+)-----").unwrap();
+
+    let line = lines
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Unexpected end of PEM file"))?;
+
+    if !begin_section.is_match(line) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid PEM begin section",
+        ));
+    }
+
+    let mut secret = Vec::new();
+    while let Some(line) = lines.next() {
+        if begin_section.is_match(line) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Unexpected BEGIN section inside PEM",
+            ));
+        }
+        if end_section.is_match(line) {
+            break;
+        }
+
+        let decoded = BASE64_STANDARD.decode(line.to_string()).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "Invalid base64 in PEM section")
+        })?;
+        secret.extend_from_slice(&decoded);
+    }
+    Ok(PemSection(secret))
 }

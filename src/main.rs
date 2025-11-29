@@ -9,7 +9,10 @@ fn main() -> io::Result<()> {
     let args: Args = Args::parse();
 
     match args.subcommand {
-        cli::SubCommands::Sign { message_file_path } => {
+        cli::SubCommands::Sign {
+            message_file_path,
+            secret_file_path,
+        } => {
             let message_reader = match message_file_path {
                 Some(ref path) => cli::MessageReader::File(path.clone()),
                 None => cli::MessageReader::Stdin,
