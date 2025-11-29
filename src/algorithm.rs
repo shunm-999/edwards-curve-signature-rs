@@ -295,7 +295,7 @@ impl Ed25519 {
         Some((a, prefix))
     }
 
-    fn secret_to_public_key(secret: &[u8]) -> Option<[u8; 32]> {
+    pub(crate) fn generate_public_key(secret: &[u8]) -> Option<[u8; 32]> {
         let (a, _prefix) = Self::secret_expand(secret)?;
 
         let base_point = Self::get_base_point();
@@ -666,7 +666,7 @@ mod tests {
             0xf7, 0x07, 0x51, 0x1a,
         ];
 
-        let public_key = Ed25519::secret_to_public_key(&secret)
+        let public_key = Ed25519::generate_public_key(&secret)
             .expect("secret_to_public_key should return Some for a valid 32-byte secret");
 
         assert_eq!(public_key, expected_public_key);
@@ -717,7 +717,7 @@ mod tests {
         let message: [u8; 0] = [];
 
         // 公開鍵の導出が RFC の値と一致すること
-        let derived_public_key = Ed25519::secret_to_public_key(&secret)
+        let derived_public_key = Ed25519::generate_public_key(&secret)
             .expect("secret_to_public_key should succeed for valid seed");
         assert_eq!(derived_public_key, public_key);
 
@@ -775,7 +775,7 @@ mod tests {
         );
 
         // 公開鍵の導出がテストベクタと一致すること
-        let derived_public_key = Ed25519::secret_to_public_key(&secret)
+        let derived_public_key = Ed25519::generate_public_key(&secret)
             .expect("secret_to_public_key should succeed for valid seed");
         assert_eq!(derived_public_key, public_key);
 
@@ -832,7 +832,7 @@ mod tests {
              4a7c15e9716ed28dc027beceea1ec40a",
         );
 
-        let derived_public_key = Ed25519::secret_to_public_key(&secret)
+        let derived_public_key = Ed25519::generate_public_key(&secret)
             .expect("secret_to_public_key should succeed for valid seed");
         assert_eq!(derived_public_key, public_key);
 
@@ -941,7 +941,7 @@ mod tests {
              5e8fcd4f681e30a6ac00a9704a188a03",
         );
 
-        let derived_public_key = Ed25519::secret_to_public_key(&secret)
+        let derived_public_key = Ed25519::generate_public_key(&secret)
             .expect("secret_to_public_key should succeed for valid seed");
         assert_eq!(derived_public_key, public_key);
 
@@ -987,7 +987,7 @@ mod tests {
              3dca179c138ac17ad9bef1177331a704",
         );
 
-        let derived_public_key = Ed25519::secret_to_public_key(&secret)
+        let derived_public_key = Ed25519::generate_public_key(&secret)
             .expect("secret_to_public_key should succeed for valid seed");
         assert_eq!(derived_public_key, public_key);
 

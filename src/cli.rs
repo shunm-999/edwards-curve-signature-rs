@@ -15,9 +15,17 @@ pub(crate) struct Args {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum SubCommands {
+    #[clap(name = "sign")]
     Sign {
         #[clap(long = "in", ignore_case = true)]
         message_file_path: Option<String>,
+        #[clap(long = "key", ignore_case = true, required = true)]
+        secret_file_path: String,
+        #[clap(long = "out", ignore_case = true)]
+        output_file_path: Option<String>,
+    },
+    #[clap(name = "gen-key")]
+    GeneratePublicKey {
         #[clap(long = "key", ignore_case = true, required = true)]
         secret_file_path: String,
         #[clap(long = "out", ignore_case = true)]
@@ -31,6 +39,10 @@ pub(crate) trait ReadMessage {
 
 pub(crate) trait ReadSecret {
     fn read_secret(&self) -> io::Result<Vec<u8>>;
+}
+
+pub(crate) trait WritePublicKey {
+    fn write_public_key(&self, public_key: &[u8]) -> io::Result<()>;
 }
 
 pub(crate) trait WriteSignature {
@@ -125,6 +137,26 @@ where
         secret.extend_from_slice(&decoded);
     }
     Ok(PemSection(secret))
+}
+
+pub(crate) enum PublicKeyWriter {
+    Stdout,
+    File(String),
+}
+
+impl WritePublicKey for PublicKeyWriter {
+    fn write_public_key(&self, public_key: &[u8]) -> io::Result<()> {
+        let b64_public_key = BASE64_STANDARD.encode(public_key);
+        match self {
+            PublicKeyWriter::Stdout => {
+                println!("{}", b64_public_key);
+            }
+            PublicKeyWriter::File(output_file_path) => {
+                fs::write(output_file_path.to_owned(), b64_public_key)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub(crate) enum SignatureWriter {
