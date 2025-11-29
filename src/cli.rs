@@ -20,6 +20,8 @@ pub(crate) enum SubCommands {
         message_file_path: Option<String>,
         #[clap(long = "key", ignore_case = true, required = true)]
         secret_file_path: String,
+        #[clap(long = "out", ignore_case = true)]
+        output_file_path: Option<String>,
     },
 }
 
@@ -123,4 +125,24 @@ where
         secret.extend_from_slice(&decoded);
     }
     Ok(PemSection(secret))
+}
+
+pub(crate) enum SignatureWriter {
+    Stdout,
+    File(String),
+}
+
+impl WriteSignature for SignatureWriter {
+    fn write_signature(&self, signature: &[u8]) -> io::Result<()> {
+        let b64_signature = BASE64_STANDARD.encode(signature);
+        match self {
+            SignatureWriter::Stdout => {
+                println!("{}", b64_signature);
+            }
+            SignatureWriter::File(output_file_path) => {
+                fs::write(output_file_path.to_owned(), b64_signature)?;
+            }
+        }
+        Ok(())
+    }
 }

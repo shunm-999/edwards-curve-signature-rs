@@ -1,7 +1,7 @@
 use crate::algorithm::Ed25519;
 
 #[derive(Debug, Clone, Copy)]
-enum SignatureAlgorithm {
+pub(crate) enum SignatureAlgorithm {
     Ed448,
     Ed25519,
 }
@@ -19,7 +19,7 @@ pub(crate) struct EdDsaSignature {
 }
 
 impl EdDsaSignature {
-    fn new(algorithm: SignatureAlgorithm) -> Self {
+    pub(crate) fn new(algorithm: SignatureAlgorithm) -> Self {
         EdDsaSignature { algorithm }
     }
 }
