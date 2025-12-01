@@ -1,8 +1,8 @@
 use crate::cli::{
-    Args, MessageReader, PublicKeyWriter, ReadMessage, ReadSecret, SecretReader, SignatureWriter,
-    SubCommands, WritePublicKey, WriteSignature,
+    Args, Base64TextReader, PlainTextReader, PublicKeyWriter, ReadBase64, ReadPlainText,
+    ReadSecret, SecretReader, SignatureWriter, SubCommands, WritePublicKey, WriteSignature,
 };
-use crate::signer::{EdDsaSignature, GeneratePublicKey, Sign, SignatureAlgorithm};
+use crate::signer::{EdDsaSignature, GeneratePublicKey, Sign, SignatureAlgorithm, Verify};
 use clap::Parser;
 use std::io;
 
@@ -27,6 +27,13 @@ fn main() -> io::Result<()> {
         } => {
             generate_public_key(secret_file_path, output_file_path)?;
         }
+        SubCommands::Verify {
+            message_file_path,
+            public_key_file_path,
+            signature_file_path,
+        } => {
+            verify(message_file_path, public_key_file_path, signature_file_path)?;
+        }
     }
 
     Ok(())
@@ -40,8 +47,8 @@ fn sign(
     let signer = EdDsaSignature::new(SignatureAlgorithm::Ed25519);
 
     let message_reader = match message_file_path {
-        Some(ref path) => MessageReader::File(path.clone()),
-        None => MessageReader::Stdin,
+        Some(ref path) => PlainTextReader::File(path.clone()),
+        None => PlainTextReader::Stdin,
     };
     let secret_reader = if secret_file_path.ends_with(".pem") {
         SecretReader::PemFile(secret_file_path)
@@ -53,7 +60,7 @@ fn sign(
         None => SignatureWriter::Stdout,
     };
 
-    let message = message_reader.read_message()?;
+    let message = message_reader.read()?;
     let secret = secret_reader.read_secret()?;
 
     let signature = signer
@@ -86,5 +93,32 @@ fn generate_public_key(
         .generate_public_key(&secret)
         .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Failed to generate public key"))?;
     public_key_writer.write_public_key(&public_key)?;
+    Ok(())
+}
+
+fn verify(
+    message_file_path: Option<String>,
+    public_key_file_path: String,
+    signature_file_path: String,
+) -> io::Result<()> {
+    let verifier = EdDsaSignature::new(SignatureAlgorithm::Ed25519);
+
+    let message_reader = match message_file_path {
+        Some(ref path) => PlainTextReader::File(path.clone()),
+        None => PlainTextReader::Stdin,
+    };
+    let public_key_reader = Base64TextReader::File(public_key_file_path);
+    let signature_reader = Base64TextReader::File(signature_file_path);
+
+    let message = message_reader.read()?;
+    let public_key = public_key_reader.read()?;
+    let signature = signature_reader.read()?;
+
+    let is_valid = verifier.verify(&public_key, &message, &signature);
+    if is_valid {
+        println!("Signature is valid.");
+    } else {
+        eprintln!("Signature is invalid.");
+    }
     Ok(())
 }

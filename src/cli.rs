@@ -31,10 +31,23 @@ pub(crate) enum SubCommands {
         #[clap(long = "out", ignore_case = true)]
         output_file_path: Option<String>,
     },
+    #[clap(name = "verify")]
+    Verify {
+        #[clap(long = "in", ignore_case = true)]
+        message_file_path: Option<String>,
+        #[clap(long = "key", ignore_case = true, required = true)]
+        public_key_file_path: String,
+        #[clap(long = "sig", ignore_case = true, required = true)]
+        signature_file_path: String,
+    },
 }
 
-pub(crate) trait ReadMessage {
-    fn read_message(&self) -> io::Result<Vec<u8>>;
+pub(crate) trait ReadPlainText {
+    fn read(&self) -> io::Result<Vec<u8>>;
+}
+
+pub(crate) trait ReadBase64 {
+    fn read(&self) -> io::Result<Vec<u8>>;
 }
 
 pub(crate) trait ReadSecret {
@@ -49,21 +62,44 @@ pub(crate) trait WriteSignature {
     fn write_signature(&self, signature: &[u8]) -> io::Result<()>;
 }
 
-pub(crate) enum MessageReader {
+pub(crate) enum PlainTextReader {
     Stdin,
     File(String),
 }
 
-impl ReadMessage for MessageReader {
-    fn read_message(&self) -> io::Result<Vec<u8>> {
+impl ReadPlainText for PlainTextReader {
+    fn read(&self) -> io::Result<Vec<u8>> {
         match self {
-            MessageReader::Stdin => {
+            PlainTextReader::Stdin => {
                 let mut input = String::new();
                 stdin().read_line(&mut input)?;
                 Ok(input.into_bytes())
             }
-            MessageReader::File(path) => fs::read(path.to_owned()),
+            PlainTextReader::File(path) => fs::read(path.to_owned()),
         }
+    }
+}
+
+pub(crate) enum Base64TextReader {
+    Stdin,
+    File(String),
+}
+
+impl ReadBase64 for Base64TextReader {
+    fn read(&self) -> io::Result<Vec<u8>> {
+        let b64_content = match self {
+            Base64TextReader::Stdin => {
+                let mut input = String::new();
+                stdin().read_line(&mut input)?;
+                input
+            }
+            Base64TextReader::File(path) => fs::read_to_string(path.to_owned())?,
+        };
+
+        let decoded = BASE64_STANDARD.decode(b64_content).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "Invalid base64 content")
+        })?;
+        Ok(decoded)
     }
 }
 
