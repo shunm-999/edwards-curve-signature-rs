@@ -1,6 +1,6 @@
 use crate::cli::{
-    Args, Base64TextReader, PlainTextReader, PublicKeyWriter, ReadBase64, ReadPlainText,
-    ReadSecret, SecretReader, SignatureWriter, SubCommands, WritePublicKey, WriteSignature,
+    Args, Base64TextReader, Base64TextWriter, PlainTextReader, ReadBase64, ReadPlainText,
+    ReadSecret, SecretReader, SubCommands, WriteBase64Text, WriteSignature,
 };
 use crate::signer::{EdDsaSignature, GeneratePublicKey, Sign, SignatureAlgorithm, Verify};
 use clap::Parser;
@@ -56,8 +56,8 @@ fn sign(
         unimplemented!("Only PEM secret files are supported");
     };
     let signature_writer = match output_file_path {
-        Some(ref path) => SignatureWriter::File(path.clone()),
-        None => SignatureWriter::Stdout,
+        Some(ref path) => Base64TextWriter::File(path.clone()),
+        None => Base64TextWriter::Stdout,
     };
 
     let message = message_reader.read()?;
@@ -67,7 +67,7 @@ fn sign(
         .sign(&secret, &message)
         .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Failed to sign the message"))?;
 
-    signature_writer.write_signature(&signature)?;
+    signature_writer.write(&signature)?;
     Ok(())
 }
 
@@ -84,15 +84,15 @@ fn generate_public_key(
     };
 
     let public_key_writer = match output_public_key_path {
-        Some(ref path) => PublicKeyWriter::File(path.clone()),
-        None => PublicKeyWriter::Stdout,
+        Some(ref path) => Base64TextWriter::File(path.clone()),
+        None => Base64TextWriter::Stdout,
     };
     let secret = secret_reader.read_secret()?;
 
     let public_key = public_key_generator
         .generate_public_key(&secret)
         .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Failed to generate public key"))?;
-    public_key_writer.write_public_key(&public_key)?;
+    public_key_writer.write(&public_key)?;
     Ok(())
 }
 

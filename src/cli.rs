@@ -54,8 +54,8 @@ pub(crate) trait ReadSecret {
     fn read_secret(&self) -> io::Result<Vec<u8>>;
 }
 
-pub(crate) trait WritePublicKey {
-    fn write_public_key(&self, public_key: &[u8]) -> io::Result<()>;
+pub(crate) trait WriteBase64Text {
+    fn write(&self, value: &[u8]) -> io::Result<()>;
 }
 
 pub(crate) trait WriteSignature {
@@ -96,9 +96,9 @@ impl ReadBase64 for Base64TextReader {
             Base64TextReader::File(path) => fs::read_to_string(path.to_owned())?,
         };
 
-        let decoded = BASE64_STANDARD.decode(b64_content).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidData, "Invalid base64 content")
-        })?;
+        let decoded = BASE64_STANDARD
+            .decode(b64_content)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid base64 content"))?;
         Ok(decoded)
     }
 }
@@ -175,40 +175,20 @@ where
     Ok(PemSection(secret))
 }
 
-pub(crate) enum PublicKeyWriter {
+pub(crate) enum Base64TextWriter {
     Stdout,
     File(String),
 }
 
-impl WritePublicKey for PublicKeyWriter {
-    fn write_public_key(&self, public_key: &[u8]) -> io::Result<()> {
-        let b64_public_key = BASE64_STANDARD.encode(public_key);
+impl WriteBase64Text for Base64TextWriter {
+    fn write(&self, value: &[u8]) -> io::Result<()> {
+        let encoded = BASE64_STANDARD.encode(value);
         match self {
-            PublicKeyWriter::Stdout => {
-                println!("{}", b64_public_key);
+            Base64TextWriter::Stdout => {
+                println!("{}", encoded);
             }
-            PublicKeyWriter::File(output_file_path) => {
-                fs::write(output_file_path.to_owned(), b64_public_key)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-pub(crate) enum SignatureWriter {
-    Stdout,
-    File(String),
-}
-
-impl WriteSignature for SignatureWriter {
-    fn write_signature(&self, signature: &[u8]) -> io::Result<()> {
-        let b64_signature = BASE64_STANDARD.encode(signature);
-        match self {
-            SignatureWriter::Stdout => {
-                println!("{}", b64_signature);
-            }
-            SignatureWriter::File(output_file_path) => {
-                fs::write(output_file_path.to_owned(), b64_signature)?;
+            Base64TextWriter::File(output_file_path) => {
+                fs::write(output_file_path.to_owned(), encoded)?;
             }
         }
         Ok(())
