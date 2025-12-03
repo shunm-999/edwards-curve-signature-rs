@@ -1,5 +1,5 @@
 [package]
-name = "edwards-curve-signature-rs"
+name = "sigtool"
 version = "0.1.0"
 edition = "2024"
 
